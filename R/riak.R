@@ -56,7 +56,7 @@ riak_ping <- function(conn) {
 riak_status <- function(conn, as="json") {
   path <- riak_stats_url(conn)
   expected_codes = c(200)
-  
+
   # TODO: fix headers
   if(as == "json") {
     accept <- "application/json"
@@ -98,6 +98,26 @@ riak_fetch <- function(conn, bucket_type, bucket, key, json=TRUE, opts=NULL) {
   }
 }
 
+# get a JSON encoded object from RIAK using secondary index and range query
+#' @export
+riak_query2i <- function(conn, bucket_type, bucket, index, start, end=NULL, json=TRUE, opts=NULL) {
+  result <- riak_query2i_raw(conn, bucket_type, bucket, index, start, end, opts)
+  expected_codes <- c(200, 202, 300, 304, 400)
+  status_code <- result$status_code
+  if (any(expected_codes == status_code)) {
+    if (json) {
+      res.json <- content(result, as="text")
+      res.obj <- fromJSON(res.json)
+    } else {
+      res.obj <- content(result, as="raw")
+    }
+    return(res.obj)
+  } else if (status_code == 400) {
+    return("400: index name or index value is invalid")
+  } else {
+    simpleError("Error fetching value from Riak")
+  }
+}
 
 # Store value in bucket as key. Defaults to formatting it as json
 #' @export
@@ -105,24 +125,24 @@ riak_store <- function(conn, bucket_type, bucket, key, value,
                        json.matrix=c("rowmajor", "columnmajor"),
                        json.dataframe=c("rows", "columns", "values"),
                        opts=list("ReturnBody"=TRUE)) {
-  
+
   stopifnot(!is.null(bucket_type))
   stopifnot(!is.null(bucket))
   stopifnot(!is.null(key))
   stopifnot(!is.null(value))
-  
+
   path <- riak_store_url(conn, bucket_type, bucket, key)
   expected_codes <- c(200, 201, 204, 300)
-  
+
   # JSON encode object
   content_type <- "application/json"
   json.matrix <- match.arg(json.matrix)
   json.dataframe <- match.arg(json.dataframe)
   value <- toJSON(value, digits=16, auto_unbox=TRUE, matrix=json.matrix, dataframe=json.dataframe)
-  
+
   # Package object
   obj <- riak_new_object(value, bucket_type, bucket, key, content_type)
-    
+
   accept_json()
   headers <- riak_store_headers_put(obj$content_type, opts, obj$vclock)
   result <- PUT(path, body=obj$value, add_headers(headers))
@@ -194,6 +214,26 @@ riak_fetch_url <- function(conn, bucket_type, bucket, key, opts=NULL) {
   paste(url, params, sep="")
 }
 
+riak_query2i_url <- function(conn, bucket_type, bucket, index, start, end=NULL, opts=NULL) {
+  if(is.null(opts)) {
+    params <- ""
+  } else {
+    additional_params <- c(url_param("r", opts$R),
+                           url_param("pr", opts$PR),
+                           url_param("return_terms", opts$ReturnTerms),
+                           url_param("max_results", opts$MaxResults),
+                           url_param("continuation", opts$Continuation),
+                           url_param("stream", opts$Stream),
+                           url_param("basic_quorum", opts$BasicQuorum),
+                           url_param("notfound_ok", opts$NotFoundOk),
+                           url_param("vtag", opts$VTag))
+    params <- make_query_string(additional_params)
+  }
+
+  url <- paste(riak_base_url(conn), "types", bucket_type, "buckets", bucket, "index", index, start, end, sep="/")
+  paste(url, params, sep="")
+}
+
 riak_store_url <- function(conn, bucket_type, bucket, key=NULL, opts=NULL) {
   if(is.null(opts)) {
     params <- ""
@@ -226,7 +266,7 @@ riak_delete_url <- function(conn, bucket_type, bucket, key, opts=NULL) {
     params <- make_query_string(additional_params)
   }
   url <- paste(riak_base_url(conn), "types", bucket_type, "buckets", bucket, "keys", key, sep="/")
-  paste(url, params, sep="")  
+  paste(url, params, sep="")
 }
 
 riak_delete_url2 <- function(conn, bucket, key) {
@@ -242,7 +282,7 @@ riak_delete_url2 <- function(conn, bucket, key) {
     params <- make_query_string(additional_params)
   }
   url <- paste(riak_base_url(conn), "buckets", bucket, "keys", key, sep="/")
-  paste(url, params, sep="")  
+  paste(url, params, sep="")
 }
 
 
@@ -287,10 +327,14 @@ riak_fetch_raw <- function(conn, bucket_type, bucket, key, opts=NULL) {
   GET(path, add_headers(riak_fetch_headers(opts)))
 }
 
+# returns the entire HTTP response
+riak_query2i_raw <- function(conn, bucket_type, bucket, index, start, end=NULL, opts=NULL) {
+  path <- riak_query2i_url(conn, bucket_type, bucket, index, start, end, opts)
+  GET(path, add_headers(riak_fetch_headers(opts)))
+}
+
 riak_fetch_headers <- function(opts) {
   # This will filter out NULL header options automatically
   c("If-None-Match"=opts$IfNoneMatch,
     "If-Modified-Since"=opts$IfModifiedSince)
 }
-
-
