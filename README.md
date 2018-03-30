@@ -1,4 +1,4 @@
-# Riak R Client
+# [DEPRECATED] Riak R Client
 
 **Riak R Client** is a client which makes it easy to communicate with [Riak](http://basho.com/riak/), an open source, distributed database that focuses on high availability, horizontal scalability, and *predictable*
 latency. Both Riak and this code is maintained by [Basho](http://www.basho.com/). 
